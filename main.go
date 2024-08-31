@@ -49,7 +49,6 @@ func main() {
 
 	decoder := json.NewDecoder(file)
 
-	// Read opening bracket
 	_, err = decoder.Token()
 	if err != nil {
 		fmt.Printf("Error reading opening bracket: %v\n", err)
@@ -57,7 +56,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 10) // Limit concurrent requests
+	semaphore := make(chan struct{}, 10)
 	var successCount, failCount int64
 
 	for decoder.More() {
@@ -136,13 +135,11 @@ func parseFlags() (Config, error) {
 }
 
 func login(email, password string, endpointURL string) (string, error) {
-	// Parse the base URL from the endpoint
 	baseURL, err := url.Parse(endpointURL)
 	if err != nil {
 		return "", fmt.Errorf("error parsing endpoint URL: %v", err)
 	}
 
-	// Construct the login URL
 	loginURL := baseURL.Scheme + "://" + baseURL.Host + "/users/login"
 
 	loginData := map[string]string{
