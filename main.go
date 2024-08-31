@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,9 +16,14 @@ import (
 
 type Config struct {
 	Method      string
-	TokenFile   string
+	Email       string
+	Password    string
 	EndpointURL string
 	InputFile   string
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
 }
 
 func main() {
@@ -28,9 +34,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	bearerToken, err := readTokenFile(config.TokenFile)
+	bearerToken, err := login(config.Email, config.Password, config.EndpointURL)
 	if err != nil {
-		fmt.Printf("Error reading bearer token file: %v\n", err)
+		fmt.Printf("Error logging in: %v\n", err)
 		return
 	}
 
@@ -83,7 +89,8 @@ func main() {
 
 func parseFlags() (Config, error) {
 	method := flag.String("method", "", "HTTP method (POST or PUT)")
-	tokenFile := flag.String("token", "", "Path to the bearer token file")
+	email := flag.String("email", "", "Email for login")
+	password := flag.String("password", "", "Password for login")
 	endpointURL := flag.String("url", "", "Endpoint URL")
 	inputFile := flag.String("input", "", "Path to the JSON input file")
 
@@ -91,7 +98,8 @@ func parseFlags() (Config, error) {
 
 	config := Config{
 		Method:      *method,
-		TokenFile:   *tokenFile,
+		Email:       *email,
+		Password:    *password,
 		EndpointURL: *endpointURL,
 		InputFile:   *inputFile,
 	}
@@ -104,8 +112,12 @@ func parseFlags() (Config, error) {
 		return Config{}, fmt.Errorf("invalid method: %s. Must be POST or PUT", config.Method)
 	}
 
-	if config.TokenFile == "" {
-		missingParams = append(missingParams, "token")
+	if config.Email == "" {
+		missingParams = append(missingParams, "email")
+	}
+
+	if config.Password == "" {
+		missingParams = append(missingParams, "password")
 	}
 
 	if config.EndpointURL == "" {
@@ -123,12 +135,42 @@ func parseFlags() (Config, error) {
 	return config, nil
 }
 
-func readTokenFile(tokenFile string) (string, error) {
-	tokenBytes, err := os.ReadFile(tokenFile)
+func login(email, password string, endpointURL string) (string, error) {
+	// Parse the base URL from the endpoint
+	baseURL, err := url.Parse(endpointURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error parsing endpoint URL: %v", err)
 	}
-	return strings.TrimSpace(string(tokenBytes)), nil
+
+	// Construct the login URL
+	loginURL := baseURL.Scheme + "://" + baseURL.Host + "/users/login"
+
+	loginData := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+	jsonData, err := json.Marshal(loginData)
+	if err != nil {
+		return "", fmt.Errorf("error marshaling login data: %v", err)
+	}
+
+	resp, err := http.Post(loginURL, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("error sending login request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("login failed with status code: %d", resp.StatusCode)
+	}
+
+	var loginResp LoginResponse
+	err = json.NewDecoder(resp.Body).Decode(&loginResp)
+	if err != nil {
+		return "", fmt.Errorf("error decoding login response: %v", err)
+	}
+
+	return loginResp.Token, nil
 }
 
 func sendRequest(data json.RawMessage, bearerToken string, config Config) bool {
